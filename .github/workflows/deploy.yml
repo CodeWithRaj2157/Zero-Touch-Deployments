@@ -1,126 +1,95 @@
 name: ECS Deployment
 
 on:
-
   push:
-
     branches:
-
       - main
 
 env:
-
   AWS_REGION: ${{ secrets.AWS_REGION }}
-
   ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
-
   ECS_CLUSTER: ${{ secrets.ECS_CLUSTER }}
-
   ECS_SERVICE: ${{ secrets.ECS_SERVICE }}
-
   CONTAINER_NAME: ${{ secrets.CONTAINER_NAME }}
 
 jobs:
-
   deploy:
-
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-    - name: Checkout Code
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
 
-      uses: actions/checkout@v4
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
 
-    - name: Configure AWS Credentials
+      - name: Terraform Init
+        working-directory: terraform
+        run: terraform init
 
-      uses: aws-actions/configure-aws-credentials@v4
+      - name: Terraform Validate
+        working-directory: terraform
+        run: terraform validate
 
-      with:
+      - name: Terraform Format
+        working-directory: terraform
+        run: terraform fmt -check
 
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
 
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      - name: Debug Values
+        run: |
+          echo "=============================="
+          echo "Registry: ${{ steps.login-ecr.outputs.registry }}"
+          echo "Repository: ${{ env.ECR_REPOSITORY }}"
+          echo "Cluster: ${{ env.ECS_CLUSTER }}"
+          echo "Service: ${{ env.ECS_SERVICE }}"
+          echo "Container: ${{ env.CONTAINER_NAME }}"
+          echo "Final Image:"
+          echo "${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest"
+          echo "=============================="
 
-        aws-region: ${{ env.AWS_REGION }}
+      - name: Build Docker Image
+        run: |
+          docker build -t $ECR_REPOSITORY -f app/Dockerfile app
 
-    - name: Setup Terraform
+      - name: Tag Docker Image
+        run: |
+          docker tag $ECR_REPOSITORY:latest \
+          ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
 
-      uses: hashicorp/setup-terraform@v3
+      - name: Push Docker Image
+        run: |
+          docker push \
+          ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
 
-    - name: Terraform Init
+      - name: Render Task Definition
+        id: task
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
 
-      working-directory: terraform
+      - name: Show Rendered Task Definition
+        run: |
+          echo "========== TASK DEFINITION =========="
+          cat "${{ steps.task.outputs.task-definition }}"
+          echo "====================================="
 
-      run: terraform init
-
-    - name: Terraform Validate
-
-      working-directory: terraform
-
-      run: terraform validate
-
-    - name: Terraform Format
-
-      working-directory: terraform
-
-      run: terraform fmt -check
-
-    - name: Login to Amazon ECR
-
-      id: login-ecr
-
-      uses: aws-actions/amazon-ecr-login@v2
-
-    - name: Show Registry
-      run: |
-        echo "Registry=${{ steps.login-ecr.outputs.registry }}"
-        echo "Repository=${{ env.ECR_REPOSITORY }}"
-
-    - name: Build Docker Image
-
-      run: |
-
-        docker build -t $ECR_REPOSITORY ./app
-
-        docker tag $ECR_REPOSITORY:latest \
-        ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:latest
-
-    - name: Push Docker Image
-
-      run: |
-
-        docker push \
-        ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:latest
-
-    - name: Render Task Definition
-
-      id: task
-
-      uses: aws-actions/amazon-ecs-render-task-definition@v1
-
-      with:
-
-        task-definition: task-definition.json
-
-        container-name: ${{ env.CONTAINER_NAME }}
-
-        image: ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:latest
-        
-    - name: Show Rendered Task Definition
-      run: |
-        cat ${{ steps.task.outputs.task-definition }}
-        
-    - name: Deploy ECS
-
-      uses: aws-actions/amazon-ecs-deploy-task-definition@v2
-
-      with:
-
-        task-definition: ${{ steps.task.outputs.task-definition }}
-
-        service: ${{ env.ECS_SERVICE }}
-
-        cluster: ${{ env.ECS_CLUSTER }}
-
-        wait-for-service-stability: true
+      - name: Deploy ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.task.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
