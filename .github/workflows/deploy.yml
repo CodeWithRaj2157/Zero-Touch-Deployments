@@ -72,6 +72,11 @@ jobs:
 
       uses: aws-actions/amazon-ecr-login@v2
 
+    - name: Show Registry
+      run: |
+        echo "Registry=${{ steps.login-ecr.outputs.registry }}"
+        echo "Repository=${{ env.ECR_REPOSITORY }}"
+
     - name: Build Docker Image
 
       run: |
@@ -101,7 +106,11 @@ jobs:
         container-name: ${{ env.CONTAINER_NAME }}
 
         image: ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:latest
-
+        
+    - name: Show Rendered Task Definition
+      run: |
+        cat ${{ steps.task.outputs.task-definition }}
+        
     - name: Deploy ECS
 
       uses: aws-actions/amazon-ecs-deploy-task-definition@v2
