@@ -7,10 +7,14 @@
   ],
   "cpu": "256",
   "memory": "512",
+  "runtimePlatform": {
+    "operatingSystemFamily": "LINUX",
+    "cpuArchitecture": "X86_64"
+  },
   "containerDefinitions": [
     {
       "name": "app",
-      "image": "750702272155.dkr.ecr.ap-south-1.amazonaws.com/infra-as-code-pipeline-dev:latest",
+      "image": "IMAGE_PLACEHOLDER",
       "essential": true,
       "portMappings": [
         {
